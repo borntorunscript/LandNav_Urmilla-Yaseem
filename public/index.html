@@ -110,6 +110,20 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text);
 .detail-body{flex:1;overflow-y:auto;padding:12px 13px}
 .status-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
 .status-sel{font-size:10px;font-family:'DM Sans',sans-serif;border:1px solid var(--border-md);border-radius:4px;padding:3px 8px;background:rgba(255,255,255,0.7);color:var(--muted);cursor:pointer;outline:none;text-transform:uppercase;letter-spacing:0.04em}
+.note-entry{position:relative;}
+.note-entry:hover .note-actions{opacity:1;}
+.note-actions{position:absolute;top:6px;right:6px;display:flex;gap:6px;opacity:0;transition:opacity .15s;}
+.note-action-btn{background:none;border:none;cursor:pointer;padding:2px;color:var(--faint);line-height:1;}
+.note-action-btn:hover{color:var(--ink);}
+.note-txt{white-space:pre-wrap;line-height:1.5;}
+.note-poster{font-size:10.5px;color:var(--faint);font-style:italic;margin-top:2px;}
+.note-poster-inp{background:var(--card);border:1px solid var(--rule);border-radius:5px;padding:5px 8px;font-size:12px;color:var(--ink);width:100%;box-sizing:border-box;margin-bottom:5px;}
+.note-poster-inp::placeholder{color:var(--faint);}
+.note-editing{background:var(--bg);border:1px solid var(--amber);border-radius:6px;padding:8px;margin-bottom:6px;}
+.note-edit-ta{width:100%;box-sizing:border-box;background:var(--card);border:1px solid var(--rule);border-radius:5px;padding:6px 8px;font-size:12.5px;color:var(--ink);resize:vertical;min-height:60px;font-family:inherit;}
+.note-edit-btns{display:flex;gap:6px;margin-top:5px;justify-content:flex-end;}
+.note-edit-save{background:var(--green);color:#fff;border:none;border-radius:5px;padding:4px 12px;font-size:12px;cursor:pointer;}
+.note-edit-cancel{background:none;border:1px solid var(--rule);border-radius:5px;padding:4px 10px;font-size:12px;cursor:pointer;color:var(--ink);}
 .agent-row{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink);margin:6px 0 10px;flex-wrap:wrap;}
 .agent-row svg{flex-shrink:0;opacity:.6;}
 .agent-phone{color:var(--green);text-decoration:none;font-weight:500;}
@@ -434,7 +448,8 @@ const hasStorage=typeof window.storage!=='undefined';
 async function sGet(k){try{return hasStorage?(await window.storage.get(k))?.value||null:localStorage.getItem('ln:'+CLIENT_NAME+':'+k);}catch{return null;}}
 async function sSet(k,v){try{hasStorage?await window.storage.set(k,v):localStorage.setItem('ln:'+CLIENT_NAME+':'+k,v);}catch{}}
 async function loadNotes(pid){try{const r=await sGet('notes:'+pid);return r?JSON.parse(r):[];}catch{return[];}}
-async function saveNote(pid,label,txt){const ns=await loadNotes(pid);ns.push({label,text:txt,ts:new Date().toISOString()});await sSet('notes:'+pid,JSON.stringify(ns));}
+async function saveNote(pid,label,txt,poster,idx=null){const ns=await loadNotes(pid);if(idx!==null){ns[idx]={...ns[idx],label,text:txt,poster,edited:new Date().toISOString()};}else{ns.push({label,text:txt,poster,ts:new Date().toISOString()});}await sSet('notes:'+pid,JSON.stringify(ns));}
+async function deleteNote(pid,idx){const ns=await loadNotes(pid);ns.splice(idx,1);await sSet('notes:'+pid,JSON.stringify(ns));}
 async function loadStatus(pid){return await sGet('st:'+pid);}
 async function saveStatus(pid,v){await sSet('st:'+pid,v);}
 async function loadRank(pid){return await sGet('rk:'+pid)||'';}
@@ -542,9 +557,24 @@ async function renderDetail(p){
   const bulletsH=p.bullets?p.bullets.map(b=>`<li>${b}</li>`).join(''):'';
 
   /* notes feed */
-  const notesH=notes.length
-    ?notes.slice().reverse().map(n=>`<div class="note-entry"><div class="note-tag">${n.label||'Note'}</div><div class="note-txt">${n.text}</div><div class="note-ts">${fmtTs(n.ts)}</div></div>`).join('')
+  const renderNotes=(notesArr,pid)=>notesArr.length
+    ?notesArr.slice().map((n,i)=>({...n,_origIdx:i})).reverse().map(n=>`
+      <div class="note-entry">
+        <div class="note-actions">
+          <button class="note-action-btn" title="Edit" onclick="startEditNote('${pid||p.id}',${n._origIdx})">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
+          <button class="note-action-btn" title="Delete" onclick="confirmDeleteNote('${pid||p.id}',${n._origIdx})">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          </button>
+        </div>
+        <div class="note-tag">${n.label||'Note'}</div>
+        <div class="note-txt">${n.text}</div>
+        ${n.poster?`<div class="note-poster">— ${n.poster}</div>`:''}
+        <div class="note-ts">${fmtTs(n.edited||n.ts)}${n.edited?' · edited':''}</div>
+      </div>`).join('')
     :`<div class="note-empty">No notes yet — add your first note below</div>`;
+  const notesH=renderNotes(notes,p.id);
 
   const stOpts=STATUSES.map(s=>`<option${curSt===s?' selected':''}>${s}</option>`).join('');
 
@@ -575,6 +605,7 @@ async function renderDetail(p){
       <div class="notes-feed" id="notesFeed">${notesH}</div>
       <div class="note-input-area">
         <input class="note-label-inp" id="noteLabelInp" type="text" placeholder="Label e.g. Convo with county, Site visit, Seller agent call…">
+        <input class="note-poster-inp" id="notePosterInp" type="text" placeholder="Posted by (e.g. Steph, Urmilla)…">
         <textarea class="note-ta" id="noteTa" placeholder="Add a note…"></textarea>
         <div class="note-ctrl">
           <span class="saved-tag" id="noteSaved">saved ✓</span>
@@ -588,15 +619,77 @@ async function renderDetail(p){
 async function handleSt(pid,v){await saveStatus(pid,v);renderList();}
 async function handleRk(pid){const v=document.getElementById('rankInp').value;await saveRank(pid,v);const el=document.getElementById('rkSaved');if(el){el.style.display='inline';setTimeout(()=>el.style.display='none',1800);}}
 async function handleNote(pid){
-  const ta=document.getElementById('noteTa');const li=document.getElementById('noteLabelInp');
+  const ta=document.getElementById('noteTa');const li=document.getElementById('noteLabelInp');const pi=document.getElementById('notePosterInp');
   const txt=ta.value.trim();if(!txt)return;
   const label=li.value.trim()||'Note';
-  await saveNote(pid,label,txt);
-  ta.value='';li.value='';
+  const poster=pi?pi.value.trim():'';
+  await saveNote(pid,label,txt,poster);
+  ta.value='';li.value='';if(pi)pi.value='';
   const el=document.getElementById('noteSaved');if(el){el.style.display='inline';setTimeout(()=>el.style.display='none',1800);}
   const notes=await loadNotes(pid);
   const feed=document.getElementById('notesFeed');
-  if(feed)feed.innerHTML=notes.slice().reverse().map(n=>`<div class="note-entry"><div class="note-tag">${n.label||'Note'}</div><div class="note-txt">${n.text}</div><div class="note-ts">${fmtTs(n.ts)}</div></div>`).join('');
+  if(feed)feed.innerHTML=renderNotes(notes,pid);
+}
+
+async function confirmDeleteNote(pid,idx){
+  if(!confirm('Delete this note?'))return;
+  await deleteNote(pid,idx);
+  const notes=await loadNotes(pid);
+  const feed=document.getElementById('notesFeed');
+  if(feed)feed.innerHTML=renderNotes(notes,pid);
+}
+
+async function startEditNote(pid,idx){
+  const notes=await loadNotes(pid);
+  const n=notes[idx];
+  const feed=document.getElementById('notesFeed');
+  if(!feed)return;
+  // Re-render with edit form inline at the right note
+  feed.innerHTML=notes.slice().map((note,i)=>({...note,_origIdx:i})).reverse().map(note=>{
+    if(note._origIdx===idx){
+      return `<div class="note-editing">
+        <div class="note-tag">${note.label||'Note'}</div>
+        <textarea class="note-edit-ta" id="editTa-${idx}">${note.text}</textarea>
+        <div class="note-edit-btns">
+          <button class="note-edit-cancel" onclick="cancelEditNote('${pid}')">Cancel</button>
+          <button class="note-edit-save" onclick="saveEditNote('${pid}',${idx})">Save</button>
+        </div>
+      </div>`;
+    }
+    return `<div class="note-entry">
+      <div class="note-actions">
+        <button class="note-action-btn" title="Edit" onclick="startEditNote('${pid}',${note._origIdx})">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <button class="note-action-btn" title="Delete" onclick="confirmDeleteNote('${pid}',${note._origIdx})">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+        </button>
+      </div>
+      <div class="note-tag">${note.label||'Note'}</div>
+      <div class="note-txt">${note.text}</div>
+      ${note.poster?`<div class="note-poster">— ${note.poster}</div>`:''}
+      <div class="note-ts">${fmtTs(note.edited||note.ts)}${note.edited?' · edited':''}</div>
+    </div>`;
+  }).join('');
+}
+
+async function saveEditNote(pid,idx){
+  const ta=document.getElementById('editTa-'+idx);
+  if(!ta)return;
+  const txt=ta.value.trim();
+  if(!txt)return;
+  const notes=await loadNotes(pid);
+  const n=notes[idx];
+  await saveNote(pid,n.label||'Note',txt,n.poster||'',idx);
+  const updated=await loadNotes(pid);
+  const feed=document.getElementById('notesFeed');
+  if(feed)feed.innerHTML=renderNotes(updated,pid);
+}
+
+async function cancelEditNote(pid){
+  const notes=await loadNotes(pid);
+  const feed=document.getElementById('notesFeed');
+  if(feed)feed.innerHTML=renderNotes(notes,pid);
 }
 
 /* COMPARE */
